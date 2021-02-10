@@ -1,0 +1,151 @@
+##########################################################################
+#
+# Example code for ourworldindata - Danijel Beljan
+# dnlbln.com
+# danijel.beljan@protonmail.com
+#
+# This is an example of a devops script I wrote to make sure that if
+# we adapt the storyframework we are required to correctly bump the version so:
+#
+#     - We keep track of development correctly.
+#     - Ability to install/rollback to previous version using npm.
+#
+# The script is small and simple since it did not require a CI procedure.
+# We opted to install the most current version for each story locally instead of having a global version hosted beause it suited our needs better.
+#
+# The downside is off course should we find a critical bug, we would have to go through each old story and update it. (fear not, I wrote a script to automate that too!)
+#
+##########################################################################
+
+#\!/bin/sh
+
+# https://stackoverflow.com/questions/5947742/how-to-change-the-output-color-of-echo-in-linux
+echoMsg() {
+    # 0    black
+    # 1    red
+    # 2    green
+    # 3    yellow
+    # 4    blue
+    # 5    magenta
+    # 6    cyan
+    # 7    white
+    local CLR=1 # Red.
+
+    case $2 in
+        "BLUE")
+        CLR=4
+        ;;
+
+        "GREEN")
+        CLR=2
+        ;;
+
+        "MAGENTA")
+        CLR=5
+        ;;
+
+        "RED")
+        CLR=1
+        ;;
+
+        "YELLOW")
+        CLR=3
+        ;;
+
+        *)
+        ;;
+    esac
+
+    echo ''
+
+    tput setaf $CLR
+    tput bold
+    echo $1
+    tput sgr0
+    echo ''
+}
+
+bumpVersion() {
+	version=$1
+	search='("version":[[:space:]]*").+(")'
+	replace="\1${version}\2"
+
+	sed -i ".bak" -E "s/${search}/${replace}/g" "package.json"
+	rm "package.json.bak";
+}
+
+usage () {
+    echoMsg "Usage: release [-v (version)] [-m (commit message)]";
+    exit;
+}
+
+# Get the branch name.
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Only allow releasing on the master branch.
+if [ $BRANCH != "master" ]
+then
+    echoMsg "You must be on the master branch to release"
+    exit;
+fi
+
+while getopts ":v:m:" opt; do
+    case ${opt} in
+        v ) # process option version
+            VERSION=$OPTARG;
+        ;;
+
+        m ) # process option message
+            COMMIT_MSG=$OPTARG;
+        ;;
+
+        \? )
+            usage
+        ;;
+
+        \: )
+            echo 'YAAAAlAA';
+            exit;
+        ;;
+    esac
+done
+
+# The variable OPTIND holds the number of options parsed by the last call to getopts.
+# It is common practice to call the #shift command at the end of your processing loop
+# to remove options that have already been handled from $@.
+shift $((OPTIND -1))
+
+# Check if all variables have been filled in.
+if [ -z "${VERSION}" ] || [ -z "${COMMIT_MSG}" ]; then
+    usage
+fi
+
+# Build the files.
+npm run build;
+
+# Check if the build finished with no errors.
+if [ $? -eq 0 ]
+then
+    echoMsg "Successfully created build files." "GREEN"
+else
+    echoMsg "BUILD FAILED - COMMIT DENIED"
+
+    # Exit with error code so the commit does not run.
+    exit 1;
+fi
+
+# Change the version number in the package.json.
+# DO it before committing.
+bumpVersion $VERSION
+
+git add .
+
+git commit -n -m "$COMMIT_MSG"
+echoMsg "Committed files" "GREEN"
+
+git tag $VERSION
+echoMsg "Tagged commit: $VERSION" "GREEN"
+
+git push && git push --tags
+
+echoMsg "$VERSION Version released" "GREEN"
